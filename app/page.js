@@ -135,9 +135,67 @@ function UploadModal({ onClose, onDone }) {
   }
 
   async function handleSyncBsale() {
-    setLoading(true); setError(null)
+    setLoading(true); setError(null); setResult(null)
+    const BASE = 'https://api.bsale.io/v1'
+    const TOKEN = process.env.NEXT_PUBLIC_BSALE_TOKEN
+    const LIMIT = 50
+
     try {
-      const res = await fetch('/api/sync-bsale', { method: 'POST' })
+      // 1. Traer todas las variantes
+      setResult({ msg: 'Cargando variantes desde Bsale...' })
+      const variantMap = {}
+      let offset = 0
+      while (true) {
+        const r = await fetch(`${BASE}/variants.json?limit=${LIMIT}&offset=${offset}&state=0`, {
+          headers: { access_token: TOKEN }
+        })
+        const d = await r.json()
+        if (!d.items?.length) break
+        for (const v of d.items) { if (v.code) variantMap[v.id] = v.code }
+        if (d.items.length < LIMIT) break
+        offset += LIMIT
+      }
+
+      // 2. Traer todos los stocks
+      setResult({ msg: `${Object.keys(variantMap).length} variantes OK. Cargando stocks...` })
+      const stockBySku = {}
+      offset = 0
+      while (true) {
+        const r = await fetch(`${BASE}/stocks.json?limit=${LIMIT}&offset=${offset}`, {
+          headers: { access_token: TOKEN }
+        })
+        const d = await r.json()
+        if (!d.items?.length) break
+        for (const s of d.items) {
+          const vid = parseInt(s.variant?.id || s.variant?.href?.split('/').pop())
+          const sku = variantMap[vid]
+          if (!sku) continue
+          if (!stockBySku[sku]) stockBySku[sku] = { stock: 0, reservado: 0, disponible: 0, variantId: vid }
+          stockBySku[sku].stock      += s.quantity         || 0
+          stockBySku[sku].reservado  += s.quantityReserved  || 0
+          stockBySku[sku].disponible += s.quantityAvailable || 0
+        }
+        if (d.items.length < LIMIT) break
+        offset += LIMIT
+      }
+
+      // 3. Enviar resultado a nuestra API → Supabase
+      const rows = Object.entries(stockBySku).map(([sku, s]) => ({
+        sku,
+        stock:            s.stock,
+        stock_reservado:  s.reservado,
+        stock_disponible: s.disponible,
+        bsale_variant_id: s.variantId,
+        synced_at:        new Date().toISOString()
+      }))
+
+      setResult({ msg: `${rows.length} SKUs encontrados. Guardando en base de datos...` })
+
+      const res = await fetch('/api/sync-bsale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows })
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       setResult({ bsale: true, ...data })
@@ -192,10 +250,12 @@ function UploadModal({ onClose, onDone }) {
         </div>
 
         {result && (
-          <div style={{ background: 'var(--green-dim)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 8, padding: 12, marginTop: 16, fontFamily: "'DM Mono', monospace", fontSize: 12, color: 'var(--green)' }}>
-            ✓ {result.bsale
-              ? `Bsale sync OK — ${result.rows_upserted} SKUs actualizados`
-              : `Excel OK — ${result.productos} productos, ${result.ventas} filas ventas`
+          <div style={{ background: result.msg ? 'var(--blue-dim)' : 'var(--green-dim)', border: result.msg ? '1px solid rgba(59,130,246,0.3)' : '1px solid rgba(34,197,94,0.3)', borderRadius: 8, padding: 12, marginTop: 16, fontFamily: "'DM Mono', monospace", fontSize: 12, color: result.msg ? 'var(--blue)' : 'var(--green)' }}>
+            {result.msg
+              ? `⟳ ${result.msg}`
+              : result.bsale
+                ? `✓ Bsale sync OK — ${result.rows_upserted} SKUs actualizados`
+                : `✓ Excel OK — ${result.productos} productos, ${result.ventas} filas ventas`
             }
           </div>
         )}

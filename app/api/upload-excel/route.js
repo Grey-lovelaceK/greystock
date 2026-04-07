@@ -1,13 +1,24 @@
 // app/api/upload-excel/route.js
 import { supabaseAdmin } from '../../../lib/supabase'
 
+function dedup(arr, keyFn) {
+  const map = {}
+  for (const item of arr) map[keyFn(item)] = item
+  return Object.values(map)
+}
+
 export async function POST(request) {
   try {
-    const { productos, ventas, compras, anio } = await request.json()
+    let { productos, ventas, compras, anio } = await request.json()
 
     if (!productos?.length) {
       return Response.json({ error: 'No se recibieron productos' }, { status: 400 })
     }
+
+    // Deduplicar por si acaso vienen duplicados del cliente
+    productos = dedup(productos, p => p.sku)
+    ventas    = dedup(ventas    || [], v => `${v.sku}_${v.mes}`)
+    compras   = dedup(compras   || [], c => `${c.sku}_${c.mes}`)
 
     const db = supabaseAdmin()
     const BATCH = 500
@@ -19,47 +30,34 @@ export async function POST(request) {
       if (error) throw error
     }
 
-    // 2. Detectar SKUs en ventas/compras que no tienen ficha en productos
-    //    → insertarlos como "sin catalogar" para no romper el foreign key
+    // 2. SKUs en ventas/compras sin ficha → insertar como "SIN CATALOGAR"
     const skusCatalogo = new Set(productos.map(p => p.sku))
-    const todosSkusVentas = new Set([
-      ...(ventas  || []).map(r => r.sku),
-      ...(compras || []).map(r => r.sku),
-    ])
-
-    const sinCatalogo = [...todosSkusVentas]
+    const todosSkus = new Set([...ventas.map(r => r.sku), ...compras.map(r => r.sku)])
+    const sinCatalogo = [...todosSkus]
       .filter(sku => !skusCatalogo.has(sku))
       .map(sku => ({
         sku,
-        tipo:     'SIN CATALOGAR',
+        tipo: 'SIN CATALOGAR',
         producto: 'Sin nombre — pendiente de completar',
-        variante: '',
-        marca:    '',
-        precio:   0,
-        costo_unit: 0,
-        margen:   0,
+        variante: '', marca: '', precio: 0, costo_unit: 0, margen: 0,
       }))
 
-    // Insertar solo si no existen ya (ignorar si ya están)
     if (sinCatalogo.length > 0) {
       for (let i = 0; i < sinCatalogo.length; i += BATCH) {
         const { error } = await db.from('productos')
-          .upsert(sinCatalogo.slice(i, i + BATCH), {
-            onConflict: 'sku',
-            ignoreDuplicates: true  // no sobreescribir si ya tienen datos
-          })
+          .upsert(sinCatalogo.slice(i, i + BATCH), { onConflict: 'sku', ignoreDuplicates: true })
         if (error) throw error
       }
     }
 
-    // 3. Ahora todos los SKUs existen → insertar ventas y compras sin filtrar
-    for (let i = 0; i < (ventas||[]).length; i += BATCH) {
+    // 3. Upsert ventas y compras
+    for (let i = 0; i < ventas.length; i += BATCH) {
       const { error } = await db.from('ventas_mensuales')
         .upsert(ventas.slice(i, i + BATCH), { onConflict: 'sku,anio,mes' })
       if (error) throw error
     }
 
-    for (let i = 0; i < (compras||[]).length; i += BATCH) {
+    for (let i = 0; i < compras.length; i += BATCH) {
       const { error } = await db.from('compras_mensuales')
         .upsert(compras.slice(i, i + BATCH), { onConflict: 'sku,anio,mes' })
       if (error) throw error
@@ -69,8 +67,8 @@ export async function POST(request) {
       ok: true,
       productos: productos.length,
       sin_catalogar: sinCatalogo.length,
-      ventas: (ventas||[]).length,
-      compras: (compras||[]).length,
+      ventas: ventas.length,
+      compras: compras.length,
       anio,
       uploaded_at: new Date().toISOString()
     })

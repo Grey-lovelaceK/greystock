@@ -157,11 +157,25 @@ function UploadModal({ onClose, onDone }) {
         }
       }
 
-      setProgress(`Subiendo ${productos.length} productos y ${ventas.length} ventas...`)
+      // Deduplicar productos por SKU (quedarse con el último)
+      const prodMap = {}
+      for (const p of productos) prodMap[p.sku] = p
+      const productosFinal = Object.values(prodMap)
+
+      // Deduplicar ventas y compras por sku+mes (quedarse con el último)
+      const ventaMap = {}
+      for (const v of ventas) ventaMap[`${v.sku}_${v.mes}`] = v
+      const ventasFinal = Object.values(ventaMap)
+
+      const compraMap = {}
+      for (const c of compras) compraMap[`${c.sku}_${c.mes}`] = c
+      const comprasFinal = Object.values(compraMap)
+
+      setProgress(`Subiendo ${productosFinal.length} productos y ${ventasFinal.length} ventas...`)
       const res = await fetch('/api/upload-excel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productos, ventas, compras, anio })
+        body: JSON.stringify({ productos: productosFinal, ventas: ventasFinal, compras: comprasFinal, anio })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)

@@ -300,6 +300,136 @@ function UploadModal({ onClose, onDone }) {
   )
 }
 
+
+// ── SIN CATALOGAR PANEL ──────────────────────────────────────────────────────
+function SinCatalogarPanel({ onClose }) {
+  const [items, setItems]     = useState([])
+  const [count, setCount]     = useState(0)
+  const [editing, setEditing] = useState(null)  // sku en edición
+  const [form, setForm]       = useState({})
+  const [saving, setSaving]   = useState(false)
+  const [msg, setMsg]         = useState(null)
+
+  useEffect(() => {
+    fetch('/api/sin-catalogar')
+      .then(r => r.json())
+      .then(d => { setItems(d.data || []); setCount(d.count || 0) })
+  }, [])
+
+  function startEdit(item) {
+    setEditing(item.sku)
+    setForm({ ...item })
+    setMsg(null)
+  }
+
+  async function saveEdit() {
+    setSaving(true); setMsg(null)
+    try {
+      const res = await fetch('/api/sin-catalogar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      setItems(prev => prev.map(i => i.sku === form.sku ? { ...form } : i))
+      setEditing(null)
+      setMsg({ ok: true, text: 'Guardado ✓' })
+    } catch(e) {
+      setMsg({ ok: false, text: e.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputStyle = {
+    background: 'var(--bg)', border: '1px solid var(--accent)',
+    color: 'var(--text)', padding: '4px 8px', borderRadius: 4,
+    fontFamily: "'DM Mono', monospace", fontSize: 11, width: '100%'
+  }
+
+  return (
+    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.panel} style={{ width: 700 }}>
+        <button className={styles.closeBtn} onClick={onClose}>✕</button>
+        <div className={styles.detailName} style={{ marginBottom: 4 }}>Productos sin catalogar</div>
+        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--muted)', marginBottom: 20 }}>
+          {count} SKUs con ventas/compras pero sin ficha de producto. Completa sus datos para que aparezcan correctamente en el dashboard.
+        </div>
+
+        {msg && (
+          <div style={{ background: msg.ok ? 'var(--green-dim)' : 'var(--red-dim)', border: `1px solid ${msg.ok ? 'rgba(34,197,94,0.3)' : 'rgba(255,77,77,0.3)'}`, borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontFamily: "'DM Mono', monospace", fontSize: 11, color: msg.ok ? 'var(--green)' : 'var(--red)' }}>
+            {msg.text}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {items.map(item => (
+            <div key={item.sku} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+              {editing === item.sku ? (
+                <div>
+                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--accent)', marginBottom: 8 }}>{item.sku}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                    {[
+                      { key: 'tipo',     label: 'Tipo' },
+                      { key: 'marca',    label: 'Marca' },
+                      { key: 'producto', label: 'Producto' },
+                      { key: 'variante', label: 'Variante' },
+                    ].map(({ key, label }) => (
+                      <div key={key}>
+                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--muted)', marginBottom: 2 }}>{label}</div>
+                        <input style={inputStyle} value={form[key] || ''} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+                    {[
+                      { key: 'precio',    label: 'Precio' },
+                      { key: 'costo_unit',label: 'Costo Unit.' },
+                      { key: 'margen',    label: 'Margen' },
+                    ].map(({ key, label }) => (
+                      <div key={key}>
+                        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--muted)', marginBottom: 2 }}>{label}</div>
+                        <input type="number" style={inputStyle} value={form[key] || 0} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={saveEdit} disabled={saving} className={styles.btnPrimary} style={{ fontSize: 11, padding: '6px 14px' }}>
+                      {saving ? 'Guardando...' : 'Guardar'}
+                    </button>
+                    <button onClick={() => setEditing(null)} className={styles.btnSecondary} style={{ fontSize: 11, padding: '6px 14px' }}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--accent)' }}>{item.sku}</div>
+                    <div style={{ fontSize: 12, color: item.producto === 'Sin nombre — pendiente de completar' ? 'var(--muted)' : 'var(--text)', marginTop: 2 }}>
+                      {item.producto}
+                    </div>
+                    {item.marca && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{item.tipo} · {item.marca}</div>}
+                  </div>
+                  <button onClick={() => startEdit(item)} className={styles.btnSecondary} style={{ fontSize: 11, padding: '5px 12px', whiteSpace: 'nowrap' }}>
+                    ✏ Editar
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {items.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)', fontFamily: "'DM Mono', monospace", fontSize: 12 }}>
+              ✓ No hay productos sin catalogar
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── DASHBOARD ────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [kpis, setKpis]       = useState(null)
@@ -315,6 +445,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false)
   const [detailSku, setDetailSku]   = useState(null)
   const [showUpload, setShowUpload] = useState(false)
+  const [showSinCat, setShowSinCat] = useState(false)
   const searchTimer = useRef(null)
   const LIMIT = 50
 
@@ -378,6 +509,9 @@ export default function Dashboard() {
             </div>
           )}
           <div className={styles.liveBadge}>EN VIVO</div>
+          <button className={styles.btnUpdate} onClick={() => setShowSinCat(true)} style={{ background:'var(--amber-dim)', borderColor:'rgba(245,158,11,0.3)', color:'var(--amber)' }}>
+            ✏ Sin catalogar
+          </button>
           <button className={styles.btnUpdate} onClick={() => setShowUpload(true)}>↑ Actualizar datos</button>
         </div>
       </header>
@@ -486,6 +620,7 @@ export default function Dashboard() {
 
       {detailSku && <DetailPanel sku={detailSku} onClose={() => setDetailSku(null)} />}
       {showUpload && <UploadModal onClose={() => setShowUpload(false)} onDone={refreshAll} />}
+      {showSinCat && <SinCatalogarPanel onClose={() => setShowSinCat(false)} />}
     </div>
   )
 }

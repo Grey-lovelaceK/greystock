@@ -1,7 +1,7 @@
 // app/api/dashboard/route.js
 // GET /api/dashboard?tab=quiebre|sinmov|todos&q=search&tipo=X&page=1
 
-import { supabase } from '@/lib/supabase'
+import { supabase } from '../../../lib/supabase'
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url)

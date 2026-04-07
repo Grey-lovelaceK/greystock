@@ -1,7 +1,7 @@
 // app/api/upload-excel/route.js
 // POST /api/upload-excel  →  Procesa el Excel (BBDD + Hoja2) y carga a Supabase
 
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin } from '../../../lib/supabase'
 import * as XLSX from 'xlsx'
 
 const MONTHS = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC']

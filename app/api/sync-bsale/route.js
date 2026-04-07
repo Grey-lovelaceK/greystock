@@ -2,7 +2,7 @@
 // POST /api/sync-bsale  →  Descarga todo el stock desde Bsale y actualiza Supabase
 // Protegido con CRON_SECRET para llamadas automáticas desde Vercel Cron
 
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin } from '../../../lib/supabase'
 
 const BSALE_TOKEN = process.env.BSALE_ACCESS_TOKEN
 const BSALE_BASE  = 'https://api.bsale.io/v1'

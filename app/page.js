@@ -192,8 +192,11 @@ function UploadModal({ onClose, onDone }) {
   async function handleSyncBsale() {
     setLoading(true); setError(null); setResult(null)
     const LIMIT = 50
+    // Solo Casa Matriz Macul
+    const ACTIVE_OFFICES = new Set([1])
+
     try {
-      // 1. Variantes
+      // 1. Variantes → mapa id → { sku, description, productId }
       setProgress('Cargando variantes desde Bsale...')
       const variantMap = {}
       let offset = 0
@@ -203,13 +206,35 @@ function UploadModal({ onClose, onDone }) {
         })
         const d = await r.json()
         if (!d.items?.length) break
-        for (const v of d.items) { if (v.code) variantMap[v.id] = v.code }
+        for (const v of d.items) {
+          if (v.code) variantMap[v.id] = {
+            sku: v.code,
+            description: v.description || '',
+            productId: v.product?.id || null
+          }
+        }
         if (d.items.length < LIMIT) break
         offset += LIMIT
       }
 
-      // 2. Stocks
+      // 2. Nombres de productos padre → mapa productId → name (marca)
+      setProgress('Cargando nombres de productos...')
+      const productNames = {}
+      offset = 0
+      while (true) {
+        const r = await fetch(`${BSALE_BASE}/products.json?limit=${LIMIT}&offset=${offset}&state=0`, {
+          headers: { access_token: BSALE_TOKEN }
+        })
+        const d = await r.json()
+        if (!d.items?.length) break
+        for (const p of d.items) productNames[p.id] = p.name || ''
+        if (d.items.length < LIMIT) break
+        offset += LIMIT
+      }
+
+      // 3. Stocks — deduplicar por variantId+officeId antes de sumar
       setProgress(`${Object.keys(variantMap).length} variantes OK. Cargando stocks...`)
+      const seenStockIds = new Set()   // evitar entradas duplicadas de Bsale
       const stockBySku = {}
       offset = 0
       while (true) {
@@ -219,24 +244,45 @@ function UploadModal({ onClose, onDone }) {
         const d = await r.json()
         if (!d.items?.length) break
         for (const s of d.items) {
+          // Ignorar sucursales inactivas
+          const officeId = parseInt(s.office?.id || s.office?.href?.split('/').pop())
+          if (!ACTIVE_OFFICES.has(officeId)) continue
+
+          // Deduplicar por stock id (Bsale a veces retorna duplicados)
+          if (seenStockIds.has(s.id)) continue
+          seenStockIds.add(s.id)
+
           const vid = parseInt(s.variant?.id || s.variant?.href?.split('/').pop())
-          const sku = variantMap[vid]
-          if (!sku) continue
+          const info = variantMap[vid]
+          if (!info) continue
+
+          const { sku } = info
           if (!stockBySku[sku]) stockBySku[sku] = { stock:0, reservado:0, disponible:0, variantId:vid }
-          stockBySku[sku].stock      += s.quantity         || 0
-          stockBySku[sku].reservado  += s.quantityReserved  || 0
-          stockBySku[sku].disponible += s.quantityAvailable || 0
+          stockBySku[sku].stock      += s.quantity          || 0
+          stockBySku[sku].reservado  += s.quantityReserved   || 0
+          stockBySku[sku].disponible += s.quantityAvailable  || 0
         }
         if (d.items.length < LIMIT) break
         offset += LIMIT
       }
 
-      // 3. Guardar en Supabase via API
-      const rows = Object.entries(stockBySku).map(([sku, s]) => ({
-        sku, stock: s.stock, stock_reservado: s.reservado,
-        stock_disponible: s.disponible, bsale_variant_id: s.variantId,
-        synced_at: new Date().toISOString()
-      }))
+      // 4. Construir rows con nombre para los SIN CATALOGAR
+      const rows = Object.entries(stockBySku).map(([sku, s]) => {
+        const info = Object.values(variantMap).find(v => v.sku === sku) || {}
+        const productName = productNames[info.productId] || ''
+        return {
+          sku,
+          stock:            s.stock,
+          stock_reservado:  s.reservado,
+          stock_disponible: s.disponible,
+          bsale_variant_id: s.variantId,
+          synced_at:        new Date().toISOString(),
+          // Datos extra para completar SIN CATALOGAR
+          _nombre:  info.description || '',
+          _marca:   productName,
+        }
+      })
+
       setProgress(`${rows.length} SKUs encontrados. Guardando en base de datos...`)
       const res = await fetch('/api/sync-bsale', {
         method: 'POST',

@@ -37,7 +37,8 @@ export async function GET() {
       authData?.bearerToken ||
       authData?.data?.token ||
       authData?.result?.token ||
-      authData?.accessToken
+      authData?.accessToken ||
+      authData?.authResult?.access_token
 
     if (!token) {
       return Response.json({

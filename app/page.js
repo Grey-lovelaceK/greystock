@@ -199,7 +199,7 @@ function UploadModal({ onClose, onDone }) {
   async function handleSyncBsale() {
     setLoading(true); setError(null); setResult(null)
     const LIMIT = 50
-    const ACTIVE_OFFICES = new Set([1])
+    const ACTIVE_OFFICES = new Set([1, 2])
 
     try {
       setProgress('Cargando variantes desde Bsale...')
@@ -505,9 +505,10 @@ export default function Dashboard() {
   const [showUpload, setShowUpload] = useState(false)
   const [showSinCat, setShowSinCat] = useState(false)
   // DLDS stock cruce
-  const [dldsStock, setDldsStock]     = useState(null)  // map sku→qty | null=no cargado
-  const [dldsLoading, setDldsLoading] = useState(false)
-  const [dldsError, setDldsError]     = useState(null)
+  const [dldsStock, setDldsStock]         = useState(null)  // map sku→qty | null=no cargado
+  const [dldsLoading, setDldsLoading]     = useState(false)
+  const [dldsError, setDldsError]         = useState(null)
+  const [soloSugerencia, setSoloSugerencia] = useState(false)
   const searchTimer = useRef(null)
   const LIMIT = 50
 
